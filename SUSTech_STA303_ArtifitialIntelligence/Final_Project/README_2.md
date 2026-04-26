@@ -1,78 +1,129 @@
-# README_2 – How to Train and Evaluate
+# Section 5 Offline RL 实验方案（可逐行复制执行）
 
-This project trains RL agents on `CartPole-v1` (Gymnasium). Use the commands below to run training and evaluation, and see where outputs are saved.
+> 运行环境：Windows PowerShell（或任意能运行 `python` 的终端）  
+> 执行位置：请先进入 `AIproject/SUSTech_STA303_ArtifitialIntelligence/Final_Project`
 
-## 1) Training (unified entry: `train.py`)
+---
 
-Run from the project root:
+## A. 单次完整复现（推荐第一次先跑这个）
 
-```bash
-# Train with a specific algorithm and episodes
-python train.py --algorithm ddqn --train-episodes 500
-python train.py --algorithm ppo  --train-episodes 500
-python train.py --algorithm sac  --train-episodes 500
+### 0) 进入项目目录
+```powershell
+cd AIproject/SUSTech_STA303_ArtifitialIntelligence/Final_Project
 ```
 
-Common flags:
-- `--algorithm {dqn, ddqn, ppo, a2c, sac}`: pick the agent.
-- `--train-episodes <int>`: number of training episodes.
-- `--no-terminal-penalty`: disable -1 reward at episode end (optional).
-- `--load-model <path>`: warm start from saved weights (optional).
-- `--skip-eval`: train only, skip evaluation afterward.
-- `--eval-episodes <int>`: evaluation episodes (if not skipped).
-- `--eval-render`: render window during eval (can slow runs).
-- `--eval-fps <int>`: FPS cap during rendering (default 60).
-
-Outputs from training:
-- Models: saved under `./models/` with names from `AGENT_REGISTRY`, e.g.:
-  - `models/cartpole_dqn.torch`
-  - `models/cartpole_double_dqn.torch`
-  - `models/cartpole_ppo.torch`
-  - `models/cartpole_a2c.torch`
-  - `models/cartpole_sac.torch`
-- Scores & plots: saved under `./scores/` with per-run timestamp and algorithm in the filename, e.g.:
-  - `scores/CartPole-v1_ddqn_YYYYMMDD-HHMMSS_scores.csv/.png`
-  - `scores/CartPole-v1_ddqn_YYYYMMDD-HHMMSS_solved.csv/.png` (when “solved”)
-- Console output: prints per-episode score and, if applicable, exploration ε.
-
-## 2) Evaluation (unified entry: `train.py`)
-
-To evaluate a trained model (use `--skip-eval` during training if you prefer to eval later):
-
-```bash
-# Use default saved path for the algorithm
-python train.py --algorithm ddqn --train-episodes 0 --skip-eval \
-    && python train.py --algorithm ddqn --train-episodes 0 --eval-episodes 50 --eval-render
+### 1) 安装依赖（只需一次）
+```powershell
+pip install -r requirements.txt
 ```
 
-Or explicitly pass a model path and skip training:
+### 2) 设置实验变量（可直接复制）
+```powershell
+$ENV_ID = "CartPole-v1"
+$CKPT   = "models/cartpole_sac_2.torch"
+$STEPS  = 50000
+$GAMMA  = 0.99
+$SEED   = 0
 
-```bash
-python train.py --algorithm sac --train-episodes 0 --skip-eval
-python train.py --algorithm sac --train-episodes 0 \
-    --eval-episodes 50 --eval-render --load-model models/cartpole_sac.torch
+# 有 GPU 用 "cuda"，没有就改成 "cpu"
+$DEVICE = "cuda"
 ```
 
-Key flags for eval (same script):
-- `--algorithm {dqn, ddqn, ppo, a2c, sac}`: choose agent for evaluation.
-- `--eval-episodes <int>`: how many episodes to run.
-- `--eval-render`: open a window to render (requires display).
-- `--load-model <path>`: optional explicit model file; otherwise defaults to `./models/<algo>.torch`.
+### 3) 采集离线数据集（D-Expert / D-Mixed）
+```powershell
+python scripts/section5_collect_dataset.py --env_id $ENV_ID --ckpt $CKPT --out "datasets/section5/cartpole_d_expert_s$SEED.pt" --steps $STEPS --prand 0.0 --seed $SEED --gamma $GAMMA
+python scripts/section5_collect_dataset.py --env_id $ENV_ID --ckpt $CKPT --out "datasets/section5/cartpole_d_mixed_s$SEED.pt"  --steps $STEPS --prand 0.87 --seed $SEED --gamma $GAMMA
+```
 
-Evaluation outputs:
-- Console: episode steps and average over eval episodes.
-- No new model files are written unless training is also run.
+# 注意：如果要重新训练的话需要从runs/section5中删除对应的文件夹,如我要重新用D-Mixed训练cql,那就删除SUSTech_STA303_ArtifitialIntelligence\Final_Project\runs\section5\cql
 
-## 3) Alternative unified scripts
+### 4) 训练：用 D-Expert
+```powershell
+python scripts/section5_train_bc.py   --dataset "datasets/section5/cartpole_d_expert_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE
+python scripts/section5_train_awbc.py --dataset "datasets/section5/cartpole_d_expert_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --beta 2.0 --w_clip 20
+python scripts/section5_train_cql.py --dataset "datasets/section5/cartpole_d_expert_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --alpha_cql 2.0 --entropy_alpha 0.03
+```
 
-- `total_train.py`: train only, same CLI style (`--algorithm`, `--episodes`, etc.); saves to `./models` and logs to `./scores` like `train.py`.
-- `total_eval.py`: eval only, same registry and default model paths; logs results to console.
-- `train_ppo.py`: PPO-specific trainer/evaluator (saves to `models/cartpole_ppo.torch` and logs to `scores/`).
+### 5) 训练：用 D-Mixed
+```powershell
+python scripts/section5_train_bc.py   --dataset "datasets/section5/cartpole_d_mixed_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE
+python scripts/section5_train_awbc.py --dataset "datasets/section5/cartpole_d_mixed_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --beta 2.0 --w_clip 20
+python scripts/section5_train_cql.py --dataset "datasets/section5/cartpole_d_mixed_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --alpha_cql 2.0 --entropy_alpha 0.03
+```
 
-## 4) Where files go (summary)
+### 6) OOD 初始状态评估（都用mixed）
+```powershell
+python scripts/section5_eval_ood.py --env_id $ENV_ID --episodes 50 --seed 321 --theta_low -0.25 --theta_high 0.25 --out "runs/section5/ood_results.json" --bc_ckpt "runs/section5/bc/cartpole_d_expert_s$SEED/bc_policy.pt" --awbc_ckpt "runs/section5/awbc/cartpole_d_expert_s$SEED/awbc_policy.pt" --cql_ckpt "runs/section5/cql/cartpole_d_mixed_s$SEED/cql_policy.pt"
+```
 
-- Models: `./models/` (one file per algorithm; new runs overwrite the same filename for that algo).
-- Scores & plots: `./scores/` (each run gets a unique timestamp+algorithm prefix; old runs are preserved).
-- Hyperparameter sweeps: `script/hparam_sweep.py` reuses `train.py` and will overwrite the same model file per algorithm; scores are still timestamped in `./scores/`.
+### 7) 绘图（学习曲线 + OOD 柱状图）
+```powershell
+python scripts/section5_plot.py --log_root "runs/section5" --output_dir "runs/section5/figures" --ood_path "runs/section5/ood_results.json"
+```
 
-If you need to keep multiple model snapshots per run, rename or move files from `./models/` after training. The score plots are already unique per run. 
+### 8) （可选）指定一个 `metrics.csv` 画 “主指标+loss”
+```powershell
+python -m section5.plot_metrics --csv "runs/section5/cql/cartpole_d_mixed_s$SEED/metrics.csv" --metric eval_return --loss_metric critic_loss --join --out "runs/section5/figures/cql_mixed_s$SEED_join.png" --smooth 1
+```
+
+输出位置：
+- 数据集：`datasets/section5/*.pt`
+- 日志+模型：`runs/section5/<algo>/<dataset_name>/*`
+- 图：`runs/section5/figures/*`
+
+---
+
+## B. 多随机种子
+
+> 说明：下面会一次性跑 `seed=0,1,2`。如果你只想跑一个种子，把 `$SEEDS` 改成 `@(0)` 即可。
+
+### 1) 设置多 seed
+```powershell
+$ENV_ID = "CartPole-v1"
+$CKPT   = "models/cartpole_sac_2.torch"
+$STEPS  = 50000
+$GAMMA  = 0.99
+$SEEDS  = @(0,1,2)
+$DEVICE = "cuda"   # 没GPU就改成 "cpu"
+```
+
+### 2) 采集数据（Expert + Mixed）
+```powershell
+foreach ($s in $SEEDS) {
+  python scripts/section5_collect_dataset.py --env_id $ENV_ID --ckpt $CKPT --out "datasets/section5/cartpole_d_expert_s$s.pt" --steps $STEPS --prand 0.0 --seed $s --gamma $GAMMA
+  python scripts/section5_collect_dataset.py --env_id $ENV_ID --ckpt $CKPT --out "datasets/section5/cartpole_d_mixed_s$s.pt"  --steps $STEPS --prand 0.87 --seed $s --gamma $GAMMA
+}
+```
+
+### 3) 训练：在Expert上
+```powershell
+foreach ($s in $SEEDS) {
+  python scripts/section5_train_bc.py   --dataset "datasets/section5/cartpole_d_expert_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE
+python scripts/section5_train_awbc.py --dataset "datasets/section5/cartpole_d_expert_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --beta 2.0 --w_clip 20
+python scripts/section5_train_cql.py --dataset "datasets/section5/cartpole_d_expert_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --alpha_cql 2.0 --entropy_alpha 0.03
+}
+```
+
+### 4) 训练：在Mixed上
+```powershell
+foreach ($s in $SEEDS) {
+  python scripts/section5_train_bc.py   --dataset "datasets/section5/cartpole_d_mixed_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE
+  python scripts/section5_train_awbc.py --dataset "datasets/section5/cartpole_d_mixed_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --beta 2.0 --w_clip 20
+  python scripts/section5_train_cql.py --dataset "datasets/section5/cartpole_d_mixed_s$SEED.pt" --env_id $ENV_ID --seed $SEED --device $DEVICE --alpha_cql 2.0 --entropy_alpha 0.03
+}
+```
+
+### 5) OOD 评估（每个 seed 跑一次；结果追加到同一个 JSON）
+```powershell
+Remove-Item "runs/section5/ood_results.json" -ErrorAction SilentlyContinue
+foreach ($s in $SEEDS) {
+  python scripts/section5_eval_ood.py --env_id $ENV_ID --episodes 50 --seed (321 + $s) --theta_low -0.25 --theta_high 0.25 --out "runs/section5/ood_results.json" --bc_ckpt "runs/section5/bc/cartpole_d_expert_s$s/bc_policy.pt" --awbc_ckpt "runs/section5/awbc/cartpole_d_expert_s$s/awbc_policy.pt" --cql_ckpt "runs/section5/cql/cartpole_d_mixed_s$s/cql_policy.pt"
+}
+```
+
+### 6) 绘图（曲线图 + OOD 柱状图）
+```powershell
+python scripts/section5_plot.py --log_root "runs/section5" --output_dir "runs/section5/figures" --ood_path "runs/section5/ood_results.json"
+```
+
+---
